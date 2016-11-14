@@ -1,0 +1,180 @@
+---
+title: "R Scripts  - Meta-Analysis of Deep Subsurface Microbiomes"
+author: "André Soares"
+date: "14 November 2016"
+output: 
+  html_document:
+    theme: spacelab
+    highlight: kate
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+library(picante)
+library(ggplot2)
+library(reshape2)
+library(UpSetR)
+library(tidyr)
+library(dplyr)
+library(RColorBrewer)
+library(plyr)
+library(labdsv)
+
+#Loading OTU table
+final_MADS <- read.table("final_otu_table_m1000_n_NoMiss_noTax.txt", 
+                         header = TRUE, row.names = 1, sep = "\t", check.names=FALSE)
+final_MADS_t<-t(final_MADS)
+
+#Loading metadata
+metadata <- read.table("SraRunTable_final_m1000_n_forR.txt", 
+                       header = TRUE, row.names = 1, sep='\t', check.names=FALSE)
+```
+
+#**Figure 1 -** nMDS of Bray-Curtis dissimilarities across host-rocks
+
+```{r, echo=TRUE}
+final_MADS_t.bc.dist <- vegdist(final_MADS_t, method = "bray")
+final_MADS_t.bc.clust <- hclust(final_MADS_t.bc.dist, method = "average")
+```
+
+```{r, include=FALSE}
+final_MADS_t.bc.mds <- metaMDS(final_MADS_t, dist = "bray", k = 2, trymax = 50)
+mds.fig.bc<-ordiplot(final_MADS_t.bc.mds, type = "none")
+```
+
+```{r, echo=TRUE, fig.height=5, fig.width=10}
+#Plotting Bray-Curtis nMDS with ggplot2
+
+set.seed(123456)  #this will set the seed so that the random draw will be the same
+grp <- metadata$Host_Rock
+data.scores <- as.data.frame(scores(mds.fig.bc))
+data.scores$site <- rownames(data.scores) 
+data.scores$grp <- grp  
+
+grp.a <- data.scores[data.scores$grp == "Amphibolite", ][chull(data.scores[data.scores$grp == 
+                                                                   "Amphibolite", c("NMDS1", "NMDS2")]), ]
+grp.b <- data.scores[data.scores$grp == "Basalt", ][chull(data.scores[data.scores$grp == 
+                                                                   "Basalt", c("NMDS1", "NMDS2")]), ]
+grp.c <- data.scores[data.scores$grp == "High-calcite_clay", ][chull(data.scores[data.scores$grp == 
+                                                                   "High-calcite_clay", c("NMDS1", "NMDS2")]), ]
+grp.d <- data.scores[data.scores$grp == "Hematite_Granite", ][chull(data.scores[data.scores$grp == 
+                                                                   "Hematite_Granite", c("NMDS1", "NMDS2")]), ]
+grp.e <- data.scores[data.scores$grp == "Dolomite", ][chull(data.scores[data.scores$grp == 
+                                                                   "Dolomite", c("NMDS1", "NMDS2")]), ]
+grp.f <- data.scores[data.scores$grp == "Tuff", ][chull(data.scores[data.scores$grp == 
+                                                                   "Tuff", c("NMDS1", "NMDS2")]), ]
+grp.g <- data.scores[data.scores$grp == "Sub_bituminous_coal", ][chull(data.scores[data.scores$grp == 
+                                                                   "Sub_bituminous_coal", c("NMDS1", "NMDS2")]), ]
+grp.h <- data.scores[data.scores$grp == "Volatile_bituminous_coal", ][chull(data.scores[data.scores$grp == 
+                                                                   "Volatile_bituminous_coal", c("NMDS1", "NMDS2")]), ]
+grp.i <- data.scores[data.scores$grp == "Pegmatitic_granite", ][chull(data.scores[data.scores$grp == 
+                                                                   "pegmatitic_granite", c("NMDS1", "NMDS2")]), ]
+grp.j <- data.scores[data.scores$grp == "Mica_schist", ][chull(data.scores[data.scores$grp == 
+                                                                   "mica_schist", c("NMDS1", "NMDS2")]), ]
+
+hull.data <- rbind(grp.a, grp.b, grp.c, grp.d, grp.e, grp.f, grp.g, grp.h, grp.i, grp.j)
+
+species.scores <- as.data.frame(scores(mds.fig.bc, "species"))  #Using the scores function from vegan to extract the species scores and convert to a data.frame
+species.scores$species <- rownames(species.scores)  # create a column of species, from the rownames of species.scores
+
+gg_bc_final_MADS_t<-ggplot() + 
+  geom_point(data=data.scores,
+             aes(x=NMDS1, y=NMDS2, shape=factor(18), colour=grp),
+             size=4, alpha = 0.75) +
+  guides(shape=FALSE) +
+  scale_colour_manual(name="Host Rocks", values=c("Amphibolite" = "dodgerblue", 
+                               "Basalt" = "cornflowerblue", 
+                               "High-calcite_clay" = "darkorange3", 
+                               "Hematite_Granite" = "darkcyan",
+                               "Dolomite" = "burlywood2",
+                               "Tuff" = "azure3",
+                               "Sub_bituminous_coal" = "green3",
+                               "Volatile_bituminous_coal" = "darkgreen",
+                               "Pegmatitic_granite" = "darkolivegreen4",
+                               "Mica_schist" = "darkorchid1")) +
+  coord_equal() +
+  # theme_bw() + 
+  theme(axis.title.x = element_text(size=12),
+        axis.title.y = element_text(size=12),
+        plot.background = element_rect(),
+        panel.grid.major = element_line(size = 1),
+        legend.background = element_rect(fill="gray95", size=.5, linetype="dotted")) +
+  annotate("text", x = -5.5, y = 3, label = "Stress = 0.153")
+
+gg_bc_final_MADS_t
+```
+
+#Testing grouping, variation explained as per metadata category.
+
+```{r}
+adonis(final_MADS_t.bc.dist ~ Host_Rock, data = metadata)
+adonis(final_MADS_t.bc.dist ~ Depth, data = metadata)
+
+anosim(final_MADS_t.bc.dist, metadata$Host_Rock, distance="bray")
+anosim(final_MADS_t.bc.dist, metadata$Depth, distance="bray")
+
+bioenv(final_MADS_t.bc.dist ~ Host_Rock + Depth, metadata, metric="gower")
+```
+
+#**Figure 2 -** Custom-filtered phylum-, class-level barcharts
+
+```{r}
+#From QIIME's summarize_taxa.py
+barchart_table <- read.table("final_otu_table_m1000_n_NoMiss_L2_altForBarchart_order.txt", 
+                       header = TRUE, row.names = 1, sep=',', check.names=FALSE)
+
+require(reshape2)
+barchart_table_rn <- cbind(Taxon = rownames(barchart_table), barchart_table)
+rownames(barchart_table_rn) <- NULL
+cl<-colnames(barchart_table_rn)
+require(reshape2)
+df.long <- melt(barchart_table_rn, id.vars="Taxon",
+                measure.vars=cl[2:ncol(barchart_table_rn)],
+                variable.name="sample",
+                value.name="value")
+# calculate proportions
+require(plyr)
+df.long <- ddply(df.long, .(sample), transform, value=(value/sum(value))*100)
+
+cols <- colorRampPalette(brewer.pal(9, "Set1"))
+myPal <- cols(length(unique(df.long$Taxon)))
+
+#Stacked barchart per phylum, class  #######
+
+stckd_bar_relabund_perPhylum<-ggplot(df.long, aes(x=sample, y=value, fill=Taxon)) + 
+  geom_bar(stat="identity") +
+  facet_wrap(~ Taxon, ncol = 3) +
+  scale_fill_manual(values = myPal) +
+  labs(y = "Relative abundance (%)") +
+  scale_y_continuous(expand = c(0,0)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "none",
+        strip.text = element_text(face="bold")) 
+
+stckd_bar_relabund_perPhylum
+```
+
+#**Figure 3b -** UpsetR diagram of Host-rock interactions
+
+```{r}
+final_MADS_upsetr<-t(aggregate(final_MADS_t, by=list(metadata$Host_Rock), sum))
+colnames(final_MADS_upsetr) = final_MADS_upsetr[1, ]
+final_MADS_upsetr = final_MADS_upsetr[-1, ]
+final_MADS_upsetr[] <- +(final_MADS_upsetr >= 1)
+dummy <- cbind(OTU_IDS = rownames(final_MADS_upsetr), final_MADS_upsetr)
+rownames(dummy) <- NULL
+final_MADS_upsetr <- as.data.frame(dummy)
+
+for(i in 2:ncol(final_MADS_upsetr)){ final_MADS_upsetr[ , i] <- as.integer(final_MADS_upsetr[ , i]) 
+for(j in 1:nrow(final_MADS_upsetr)){ final_MADS_upsetr[ j, i] <- final_MADS_upsetr[j, i]-1 } }
+
+upset(final_MADS_upsetr, order.by = "freq", sets=c("Amphibolite", "Basalt", "Dolomite", "Hematite_Granite", 
+                                                   "High-calcite_clay", "Mica_schist", 
+                                                   "Pegmatitic_granite", 
+                                                   "Sub_bituminous_coal", "Tuff", "Volatile_bituminous_coal"),
+      sets.bar.color = "#56B4E9", nintersects = 23)
+```
