@@ -47,8 +47,9 @@ mds.fig.bc<-ordiplot(final_MADS_t.bc.mds, type = "none")
 
 ```{r, echo=TRUE, fig.height=5, fig.width=10}
 #Plotting Bray-Curtis nMDS with ggplot2
+#Adapted from http://chrischizinski.github.io/rstats/2014/04/13/vegan-ggplot2
 
-set.seed(123456)  #this will set the seed so that the random draw will be the same
+set.seed(123456) 
 grp <- metadata$Host_Rock
 data.scores <- as.data.frame(scores(mds.fig.bc))
 data.scores$site <- rownames(data.scores) 
