@@ -1,0 +1,710 @@
+---
+title: "MADS - Figures"
+author: "André Soares"
+date: "29 May 2018"
+geometry: margin=0.5in
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r initial loadings, message=FALSE, warning=FALSE, include=FALSE}
+library(dada2); packageVersion("dada2")
+library(ggplot2); packageVersion("ggplot2")
+library(phyloseq); packageVersion("phyloseq")
+library(data.table); packageVersion("data.table")
+library(DESeq2); packageVersion("DESeq2")
+library(dplyr)
+library(plyr)
+library(magrittr)
+library(RColorBrewer)
+library(phangorn)
+library(DECIPHER)
+library("structSSI")
+library(ips)
+library(msa)
+library(picante)
+library(igraph)
+library(cowplot)
+library(plotly)
+library(lemon)
+library(GGally)
+library(randomcoloR)
+library(knitr)
+library(kableExtra)
+library(ggpmisc)
+library(ggpubr)
+library(UpSetR)
+library(scales)
+library(grid)
+
+uzdir <- "/media/andre/B2F8C9A0F8C962E9/MetaAn_DS/MADS_v2/analysis/"
+# biom_file <- paste(uzdir, "10s_500O_network/geo_otu_table_500O_10s.biom", sep = "")
+biom_file <- paste(uzdir, "10s_500O_network/final_otu_table_500O_10s.biom", sep = "")
+map_file <- paste(uzdir, "10s_500O_network/MADS_v2_metadata_10s_500O.txt", sep = "")
+# map_file <- paste(file.choose(), sep = "")
+# write.csv(meta, "meta_correctfeet.csv")
+# Now import the .biom-formatted otu_table-tax_table file.
+MADS_v2 <- import_biom(biom_file)
+# Add sample data to the dataset using merge
+metadata_MADS_v2 <- import_qiime_sample_data(map_file)
+#SILVA tax imports ~15 ranks. not sure why but let's just keep the ones that exist and rename them
+tax_table(MADS_v2) <- tax_table(MADS_v2)[,1:7]
+colnames(tax_table(MADS_v2)) = c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Otus")
+metadata_MADS_v2$Geology = factor(metadata_MADS_v2$Geology, 
+                                                levels = c("Sandstone","Dolomite","Siltstone","Shale","High-calcite clay",
+                                                           "Biotite-gneiss","Hematite","Mica-schist",
+                                                           "Chlorite-sericite-schist","Amphibolite","Basalt",
+                                                           "Tuff","Rhyolite-tuff-breccia","Volatile bituminous coal",
+                                                           "Sub-bituminous coal"))
+#create phyloseq object
+MADS_v2_p <- phyloseq(otu_table(MADS_v2),
+               sample_data(metadata_MADS_v2),
+               tax_table(MADS_v2))
+MADS_v2_p
+#remove samples without depth info
+MADS_v2_p.f = subset_samples(MADS_v2_p, Depth != "missing")
+# Pull output metadata
+meta <- sample_data(MADS_v2_p.f)
+# convert factor to numer
+meta$Depth <- as.numeric(as.character(meta$Depth))
+# Put new metadata back into ps object
+sample_data(MADS_v2_p.f) <- meta
+MADS_v2_p.f.noArc = subset_samples(MADS_v2_p.f, X.SampleID != "OLKR49a" &
+                                     X.SampleID != "OLKR1a" &
+                                     X.SampleID != "OLKR5a" &
+                                     X.SampleID != "OLKR3a" &
+                                     X.SampleID != "OLKR9ya" &
+                                     X.SampleID != "OLKR9aa" &
+                                     X.SampleID != "OLKR6a" &
+                                     X.SampleID != "OLKR13a" &
+                                     X.SampleID != "OLKR2a" &
+                                     X.SampleID != "OLKR29a" &
+                                     X.SampleID != "OLKR23a")
+MADS_v2_p.f.noArc.es = prune_samples(sample_sums(MADS_v2_p.f.noArc)>=2, MADS_v2_p.f.noArc)
+MADS_v2_p.f.noArc.es.eo = filter_taxa(MADS_v2_p.f.noArc.es, function(x) sum(x) > 0, TRUE)
+MADS_v2.b.r <-  transform_sample_counts(MADS_v2_p.f.noArc.es.eo, function(x) {x/sum(x)} )
+```
+
+##Main Figures and Tables
+
+###**Figure 1**
+
+```{r echo=FALSE}
+# Phylum-level tax, transformed by geology ====
+geo_merged_MADS_v2.b.r = merge_samples(MADS_v2.b.r, "Geology", fun=mean)
+#Number of OTUs per phylum, ordered
+sv.phyl_geo_merged_MADS_v2.b.r<-as.data.frame(table(tax_table(geo_merged_MADS_v2.b.r)[, "Phylum"], exclude = NULL))
+sv.phyl_geo_merged_MADS_v2.b.r.ord <- sv.phyl_geo_merged_MADS_v2.b.r[order(-sv.phyl_geo_merged_MADS_v2.b.r$Freq),] 
+# sv.phyl_geo_merged_MADS_v2.b.r.ord
+
+classsv.phyl_geo_merged_MADS_v2.b.r<-as.data.frame(table(tax_table(geo_merged_MADS_v2.b.r)[, "Class"], exclude = NULL))
+classsv.phyl_geo_merged_MADS_v2.b.r.ord <- classsv.phyl_geo_merged_MADS_v2.b.r[order(-classsv.phyl_geo_merged_MADS_v2.b.r$Freq),] 
+# classsv.phyl_geo_merged_MADS_v2.b.r.ord
+
+geo_merged_MADS_v2.b.r <-  transform_sample_counts(geo_merged_MADS_v2.b.r, function(x) {x/sum(x)} ) 
+# geo_merged_MADS_v2.b.r.metadata = merge_samples(sample_data(MADS_v2.b.r), "Geology")
+# identical(sample_data(geo_merged_MADS_v2.b.r), geo_merged_MADS_v2.b.r.metadata)
+geo_merged_MADS_v2.b.r.glom <- tax_glom(geo_merged_MADS_v2.b.r, taxrank = 'Phylum', NArm=FALSE)
+geo_merged_MADS_v2.b.r.glom.MADS_v2df <- data.table(psmelt(geo_merged_MADS_v2.b.r.glom))
+geo_merged_MADS_v2.b.r.glom.MADS_v2df$Phylum <- as.character(geo_merged_MADS_v2.b.r.glom.MADS_v2df$Phylum)
+geo_merged_MADS_v2.b.r.glom.MADS_v2df[, median := median(Abundance, na.rm = TRUE), 
+                           by = "Phylum"]
+geo_merged_MADS_v2.b.r.glom.MADS_v2df[(median <= 0.006), Phylum := "Other"]
+
+geo_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo<-geo_merged_MADS_v2.b.r.glom.MADS_v2df[!grepl("Proteobacteria", geo_merged_MADS_v2.b.r.glom.MADS_v2df$Phylum),]
+geo_merged_MADS_v2.b.r.ProtCl = subset_taxa(geo_merged_MADS_v2.b.r, Phylum == "Proteobacteria")
+geo_merged_MADS_v2.b.r.ProtCl.glom <- tax_glom(geo_merged_MADS_v2.b.r.ProtCl, taxrank = 'Class')
+geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df <- data.table(psmelt(geo_merged_MADS_v2.b.r.ProtCl.glom))
+geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df$Class <- as.character(geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df$Class)
+geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df[, median := median(Abundance, na.rm = TRUE), 
+                                  by = "Class"]
+geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df[(median <= 0.013), Class := "Other Proteobacteria"]
+geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP <- subset(geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df, select = -Phylum)
+names(geo_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo)[names(geo_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo) == 'Phylum'] <- 'Taxa'
+names(geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP)[names(geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP) == 'Class'] <- 'Taxa'
+#join the two
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy <- rbind(geo_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo, geo_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP)
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy<-geo_merged_MADS_v2.b.r.ProteoCl.AllPhy[!grepl("Other Proteobacteria",
+                                                                                      geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa),]
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Sample = factor(geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Sample, 
+                                                levels = c("Biotite-gneiss","Hematite","Mica-schist",
+                                                           "Chlorite-sericite-schist","Amphibolite","Basalt",
+                                                           "Tuff","Rhyolite-tuff-breccia",
+                                                           "Sandstone","Dolomite","Siltstone","Shale","High-calcite clay",
+                                                           "Volatile bituminous coal","Sub-bituminous coal"))
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa = factor(geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa,
+                                                levels = c("Alphaproteobacteria","Betaproteobacteria","Gammaproteobacteria","Deltaproteobacteria",
+                                                           "Firmicutes","Actinobacteria","Other"))
+
+fig1_MADS_v2_colors = c("Sandstone" = "#440a31", 
+                        "Dolomite" = "#aa4455", 
+                        "Siltstone" = "#ef7ac8",
+                        "Shale" = "#08243f", 
+                        "High-calcite clay" = "#4488aa", 
+                        "Biotite-gneiss" = "#8cc5ff",
+                        "Hematite" = "#0c4c2c", 
+                        "Mica-schist" = "#03a353", 
+                        "Chlorite-sericite-schist" = "#89d6af",
+                        "Amphibolite" = "#774411", 
+                        "Basalt" = "#ff9430", 
+                        "Tuff" = "#DDAA77",
+                        "Rhyolite-tuff-breccia" = "#f2e718", 
+                        "Volatile bituminous coal" = "#a09b0e", 
+                        "Sub-bituminous coal" = "#d3d358")
+
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Rock_type <- gsub('1', 'Crystalline',geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Rock_type)
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Rock_type <- gsub('2', 'Sedimentary',geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Rock_type)
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Rock_type <- gsub('3', 'Coal',geo_merged_MADS_v2.b.r.ProteoCl.AllPhy$Rock_type)
+
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy.plot<-ggplot(geo_merged_MADS_v2.b.r.ProteoCl.AllPhy[Abundance > 0], 
+                                         aes(x = Sample, y = Abundance, fill = Sample)) + 
+  geom_hline(yintercept = c(0.2,0.4,0.6),
+             size=0.5, alpha=0.5) +
+  geom_hline(yintercept = c(0.1,0.3,0.5,0.7),
+             size=0.5, alpha=0.3) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Taxa) +
+  scale_y_continuous(breaks=c(0,0.2,0.4,0.6),
+                     labels = scales::percent,
+                     expand = c(0,.01)) +
+  scale_fill_manual(values=fig1_MADS_v2_colors) +
+  geom_vline(xintercept = c(8.5,13.5),
+            linetype="dotted") +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1,
+                                 size = 12),
+        panel.background = element_rect(fill = "white"),
+        legend.position="none") +
+  
+  ylab("Relative Abundance\n")
+
+# geo_merged_MADS_v2.b.r.ProteoCl.AllPhy_dtf <- data.table(geo_merged_MADS_v2.b.r.ProteoCl.AllPhy)
+# geo_merged_MADS_v2.b.r.ProteoCl.AllPhy_dtf[,list(mean=mean(Abundance*100),sd=sd(Abundance*100)),by=.(Sample,Taxa)]
+```
+```{r echo=FALSE, fig.align="center", fig.height=7, fig.width=14}
+geo_merged_MADS_v2.b.r.ProteoCl.AllPhy.plot
+```
+
+**Legend:** Mean relative abundances (%, y-axis) of the most abundant taxonomic groups across the dataset across all analysed host-rocks (x-axis). Vertical dashed lines divide sedimentary and crystalline rocks and coals.
+
+###**Figure 2**
+
+```{r, include=FALSE}
+geo_merged_MADS_v2.b = merge_samples(MADS_v2_p.f.noArc.es.eo, "Geology", fun=mean)
+geo_MADS_upsetr = as.data.frame(t(otu_table(geo_merged_MADS_v2.b)))
+geo_MADS_upsetr[] <- +(geo_MADS_upsetr >= 1)
+dummy <- cbind(OTU_IDS = rownames(geo_MADS_upsetr), geo_MADS_upsetr)
+rownames(dummy) <- NULL
+geo_MADS_upsetr <- as.data.frame(dummy)
+
+geo_MADS_upsetr_metadata = read.delim("/media/andre/B2F8C9A0F8C962E9/MetaAn_DS/MADS_v2/analysis/10s_500O_network/MADS_v2_metadata_10s_500O_UpSetR.txt", sep = "\t")
+geo_MADS_upsetr_metadata$rock_type = as.character(geo_MADS_upsetr_metadata$rock_type)
+```
+
+```{r echo=FALSE, fig.align="center", fig.height=5, fig.width=9}
+upset(geo_MADS_upsetr, order.by = "freq",
+      sets=c("Sandstone","Dolomite","Siltstone","Shale","High-calcite clay",
+                        "Biotite-gneiss","Hematite","Mica-schist",
+                        "Chlorite-sericite-schist","Amphibolite","Basalt",
+                        "Tuff","Rhyolite-tuff-breccia","Volatile bituminous coal",
+                        "Sub-bituminous coal"),
+      sets.bar.color = c("#AAAA44","#AA4477","#AA4477","#AAAA44","#117755",
+                         "#AAAA44","#AAAA44","#AAAA44","#AAAA44","#AAAA44",
+                         "#117755","#AAAA44","#117755","#117755","#AAAA44"),
+      text.scale = 1.1,
+      matrix.dot.alpha = 0.7,
+      nintersects = 15,
+      line.size = 0.8,
+      mb.ratio = c(0.55, 0.45),
+      mainbar.y.label = "Mean no. of OTUs",
+      sets.x.label = "Mean no. of OTUs per Host-rock",
+      set_size.show = TRUE,
+      set_size.numbers_size = 7,
+      set_size.scale_max = 1000,
+      queries = list(
+        list(query = intersects,
+          params = list("Amphibolite"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Volatile bituminous coal"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Hematite"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Dolomite"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("High-calcite clay"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Tuff"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Rhyolite-tuff-breccia"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Sub-bituminous coal"), color = "#4477AA", active = T),
+      list(query = intersects,
+          params = list("Mica-schist"), color = "#4477AA", active = T)),
+      set.metadata = list(
+        data = geo_MADS_upsetr_metadata,
+        plots = list(
+        list(type = "matrix_rows",
+             column = "rock_type",
+             colors = c(sedimentary = "#117755", 
+                        crystalline = "#AAAA44",
+                        Coal = "#AA4477"),
+             alpha = 0.4))
+      ))
+      
+# grid.text("Showing intersections involving\n 10 or more OTUs in average",x = 0.75, y=0.85, gp=gpar(fontsize=14))
+```
+
+**Legend:** *UpsetR* plot of mean numbers of interactions among rock types. Only interactions involving 25 or more OTUs in average are shown. Coloured matrix rows correspond to host-rock and are coloured according to rock type: yellow for crystalline, green for sedimentary rocks and pink for coals. Columns depict interactions: blue dots mark independent (mean number of non-shared OTUs) interactions and black dots connected by black lines mark shared interactions between two or more host-rocks. Shared interactions are composed of only the host-rocks marked by dots. Vertical bars on top of the coloured matrix correspond to mean OTU numbers present in the described interactions and are coloured black or blue if depicting shared or non-shared interactions, respectively. Horizontal bars by the left of the coloured matrix depict mean total numbers of OTUs per host-rock.
+
+###**Figure 3**
+
+```{r, include=FALSE}
+set.seed(6)
+MADS_v2.b.r.nmds  <- ordinate(MADS_v2.b.r,
+                              "NMDS",
+                              distance="jsd",
+                              maxit = 1e3)
+
+nmds_MADS_v2_colors = c("#771155", "#AA4488", "#CC99BB",
+                        "#114477", "#4477AA", "#77AADD",
+                        "#117744", "#44AA77", "#88CCAA",
+                        "#774411", "#AA7744", "#DDAA77",
+                        "#DDDD77", "#AAAA44", "#777711")
+
+nmds_MADS_v2_colors_by_name = c("Sandstone" = "#440a31", 
+                                "Dolomite" = "#aa4455", 
+                                "Siltstone" = "#ef7ac8",
+                                "Shale" = "#08243f", 
+                                "High-calcite clay" = "#4488aa", 
+                                "Biotite-gneiss" = "#8cc5ff",
+                                "Hematite" = "#0c4c2c", 
+                                "Mica-schist" = "#03a353", 
+                                "Chlorite-sericite-schist" = "#89d6af",
+                                "Amphibolite" = "#774411", 
+                                "Basalt" = "#ff9430", 
+                                "Tuff" = "#DDAA77",
+                                "Rhyolite-tuff-breccia" = "#f2e718", 
+                                "Volatile bituminous coal" = "#a09b0e", 
+                                "Sub-bituminous coal" = "#d3d358")
+
+nmds_MADS_v2_shapes_by_name = c("Belgium" = 15,
+                                "Canada" = 16,
+                                "Finland" = 17,
+                                "USA" = 18)
+
+set.seed(6)
+nmds_MADS_v2 <- plot_ordination(MADS_v2.b.r, MADS_v2.b.r.nmds,
+                                color="Geology", 
+                                shape="Location") +
+  # geom_point(size=6, alpha = 0.5) +
+  geom_point(size=9, alpha = 0.6) +
+  scale_shape_manual(values=nmds_MADS_v2_shapes_by_name) +
+  scale_color_manual("Host-rock", values=nmds_MADS_v2_colors_by_name) +
+  scale_fill_manual("Host-rock", values=nmds_MADS_v2_colors_by_name)
+  # scale_y_continuous(limits = c(-0.3,0.3)) +
+  # geom_polygon(aes(fill=Geology),
+  #              alpha = 0.2,
+  #              color = NA,
+  #              show.legend = NA)
+nmds_MADS_v2 = nmds_MADS_v2 +
+  stat_ellipse(data = subset(nmds_MADS_v2$data, Geology != "Mica-schist"),
+               aes(fill = Geology),
+               type = "t",
+               geom = "polygon",
+               alpha = 0.1,
+               level = 0.95,
+               linetype = 2,
+               show.legend = FALSE)
+  # scale_y_continuous(limits = c(-0.5,0.3)) +
+  # geom_rect(xmin=.03, ymin=-0.03, xmax=0.155, ymax=0.08,
+  #           color = "black", fill = NA) +
+  # geom_segment(x = 0.03, y = 0.08, xend = -.36, yend = -0.18,
+  #              color = "black", size = 0.2, linetype=3) +
+  # geom_segment(x = 0.155, y = 0.08, xend = -0.07, yend = -0.18,
+  #              color = "black", size = 0.2, linetype=3) +
+  # geom_segment(x = 0.155, y = -0.03, xend = -0.068, yend = -0.52,
+  #              color = "black", size = 0.2, linetype=3) +
+  # geom_segment(x = 0.03, y = -0.03, xend = -.09, yend = -0.18,
+  #              color = "black", size = 0.2, linetype=3)
+
+# nmds_MADS_v2_subset = subset(nmds_MADS_v2$data,
+#                              (Axis.1>=0.02) & (Axis.2 >= -0.05 & Axis.2 <= 0.1))
+#                                                # >=-0.05 | Axis.2<=0.1))
+# nmds_MADS_v2_subset_plot = ggplot(nmds_MADS_v2_subset,
+#                                   aes(Axis.1, Axis.2,
+#                                       color = Geology, shape = Location)) +
+#   geom_point(size=4, alpha = 0.7) +
+#   geom_point(size=6, alpha=0.4) +
+#   scale_shape_manual(values=nmds_MADS_v2_shapes_by_name) +
+#   scale_color_manual("Host-rock", values=nmds_MADS_v2_colors_by_name) +
+#   theme(legend.position = "none",
+#         axis.title = element_text(size= 7),
+#         axis.text = element_text(size = 6),
+#         panel.background = element_rect(color = "white"))
+
+
+
+#check r2 values, etc with
+#stressplot(MADS_v2.b.r.nmds)
+
+MADS_v2.b.r.nmds.spdf = as.data.frame(stressplot(MADS_v2.b.r.nmds))
+r2 = round(0.974, digits =3)
+R2.exp <- paste("R^2 == ",r2)
+
+
+MADS_v2.b.r.nmds.spdf.plot = ggplot(MADS_v2.b.r.nmds.spdf, aes(x, y)) + 
+  geom_point(aes(x, y),
+             alpha = 0.2,
+             color = "deepskyblue2") + 
+  geom_smooth(method='loess',
+              se = 0.99,
+              alpha = 0.1,
+              color = "dodgerblue4",
+              fill = "dodgerblue4") +
+  scale_y_continuous(labels = scales::percent) +  
+  scale_x_continuous(labels = scales::percent) +
+  ylab("Ordination Distance") +
+  xlab("Observed Dissimilarity") +
+  annotate("text", x = 0.21, y = 0.49,
+           label = "Non-metric fit: ") +
+  annotate("text", x = 0.4, y = 0.5,
+           label = R2.exp,
+           parse = TRUE) +
+  theme(axis.title = element_text(size = 8),
+        axis.text = element_text(size = 7))
+```
+```{r echo=FALSE, fig.align="center", fig.height=8, fig.width=12, message=FALSE, warning=FALSE}
+ggdraw(nmds_MADS_v2) +
+  # draw_plot() +
+  # annotate("rect", xmin = 0.45, xmax = 0.6, ymin = 0.1, ymax = 0.45, color = "black", fill = NA) +
+  draw_plot(MADS_v2.b.r.nmds.spdf.plot, 0.44, 0.64, 0.35, 0.35) +
+  draw_plot_label(c("A", "B"), c(0, 0.5), c(1, 0.99), size = 15)
+```
+
+**Legend:** non-metric Multidimensional Scaling (nMDS) of Jensen-Shannon distances between samples (**A**). Shapes correspond to different locations, whereas colours depict host-rocks targeted in this study. **B** depicts a *Shepard's* stress plot of observed (original) dissimilarities and ordination distances. An $R^2$ measure of stress is further shown for the non-metric fit of the variables.
+
+###**Table 1** (metadata table) 
+
+###**Table 2**
+
+**Legend:** Top 10 most central OTUs in the Jaccard distances network (as defined by eigenvector centrality scores, or the scored value of the centrality of each connected neighbour of an OTU) and correspondent closeness centrality (scores of shortest paths to and from an OTU to all the remainder in a network) and degree (number of directly connected edges, or OTUs) values.
+
+```{r echo=FALSE, fig.align="center", message=FALSE, warning=FALSE}
+library(dplyr)
+# Remove taxa not seen more than 2 times in at least 5% of the samples.
+physeq.r.noS = filter_taxa(MADS_v2_p.f.noArc.es.eo, function(x) sum(x > 2) > (0.05*length(x)), TRUE)
+physeq.r.noS = subset_taxa(physeq.r.noS, Phylum=="Proteobacteria" | Phylum=="Firmicutes" | Phylum=="Actinobacteria")
+tax_table(physeq.r.noS) <- gsub('D_1__', '',tax_table(physeq.r.noS))
+tax_table(physeq.r.noS) <- gsub('D_2__', '',tax_table(physeq.r.noS))
+tax_table(physeq.r.noS) <- gsub('D_3__', '',tax_table(physeq.r.noS))
+tax_table(physeq.r.noS) <- gsub('D_4__', '',tax_table(physeq.r.noS))
+tax_table(physeq.r.noS) <- gsub('D_5__', '',tax_table(physeq.r.noS))
+
+# physeq.r.noS.jsd = phyloseq::distance(physeq.r.noS,
+#                                       method = "jsd",
+#                                       type = "taxa")
+ig = make_network(physeq.r.noS,
+                  max.dist = 0.7, 
+                  type = "taxa")
+
+edgeDF    <- data.frame(get.edgelist(ig))
+edgeDF$id <- 1:length(edgeDF[, 1])
+edgeDF$weight <- E(ig)$weight
+edgeDF$betweenness <- round(edge_betweenness(ig), digits = 2)
+names(edgeDF) <- c("OTU 1","OTU 2","Int ID","Betweenness")
+top10_edgeDF <- head(edgeDF[order(-edgeDF$Betweenness),], n=10)
+top10_edgeDF$'OTU 1 Classification'<-c("Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Gammap.;Pseudomonadales;Pseudomonadaceae;Pseudomonas",
+                                    "Gammap.;Pseudomonadales;Pseudomonadaceae;Pseudomonas",
+                                    "Betap.;Rhodocyclales;Rhodocyclaceae;Azoarcus",
+                                    "Firm.;Clostridia;Clostridiales;Peptostreptococcaceae;Peptoclostridium",
+                                    "Gammap.;Pseudomonadales;Pseudomonadaceae;Pseudomonas",
+                                    "Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Gammap.;Pseudomonadales;Moraxellaceae;Acinetobacter")
+top10_edgeDF$'OTU 2 Classification'<-c("Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Gammap.;Pseudomonadales;Moraxellaceae;Acinetobacter",
+                                    "Gammap.;Alteromonadales;Alteromonadaceae;Alishewanella",
+                                    "Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Gammap.;Chromatiales;Chromatiaceae;Rheinheimera",
+                                    "Betap.;Rhodocyclales;Rhodocyclaceae;uncultured",
+                                    "Firm.;Clostridia;Clostridiales;Peptostreptococcaceae;Intestinibacter",
+                                    "Alphap.;Rhodobacterales;Rhodobacteraceae;Paracocccus",
+                                    "Gammap.;Alteromonadales;Alteromonadaceae;Alishewanella",
+                                    "Gammap.;Pseudomonadales;Moraxellaceae;Acinetobacter")
+
+vertexDF <- data.frame(names(V(ig)))
+vertexDF$centrality <- eigen_centrality(ig)$vector
+vertexDF$closeness <- closeness(ig)
+vertexDF$degree <- degree(ig)
+vertexDF$eigvec_centrality <- evcent(ig)$vector
+names(vertexDF) <- c("OTU ID","Centrality","Closeness","Degree","Eigenvector Centrality")
+top10_vertexDF <- head(vertexDF[order(-vertexDF$Centrality),], n=10)
+top10_vertexDF$'OTU Classification'<-c("Proteob.; Gammaproteob.; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                      "Proteob.; Betaproteob.; Rhodocyclales; Rhodocyclaceae; Thauera",
+                                      "Proteob.; Betaproteob.; Burkholderiales; Comamonadaceae; Diaphorobacter",
+                                      "Proteob.; Betaproteob.; Burkholderiales; Comamonadaceae; Acidovorax",
+                                      "Proteob.; Betaproteob.; Rhodocyclales; Rhodocyclaceae; Thauera",
+                                      "Proteob.; Alphaproteob.; Rhizobiales; Rhizobiaceae; Rhizobium",
+                                      "Proteob.; Betaproteob.; Burkholderiales; Comamonadaceae; Acidovorax",
+                                      "Proteob.; Betaproteob.; Burkholderiales; Comamonadaceae; Rhodoferax",
+                                      "Firmicutes; Bacilli; Bacillales; Planococcaceae; Planomicrobium",
+                                      "Proteob.; Alphaproteob.; Rhodobacterales; Rhodobacteraceae; Defluviimonas")
+
+# # E(ig)$weight <- edge.betweenness(ig)
+# 
+# pcols<-c("cadetblue1","chocolate2","red3","deepskyblue",
+#          "coral","cadetblue","burlywood3","burlywood1",
+#          "brown4","brown1","royalblue4","blanchedalmond",
+#          "bisque4","black","bisque2","azure4",
+#          "azure2","aquamarine4","antiquewhite3","deeppink1",
+#          "dodgerblue4","darkslategray4","darksalmon","darkseagreen4",
+#          "darkorchid1","darkorange","limegreen","darkgreen",
+#          "darkgoldenrod2","darkcyan","dodgerblue","cornsilk2",
+#          "cornflowerblue","coral4","gold1","forestgreen")
+# psizes<-c("Psedomonadales" = 3,
+#           "Burkholderiales" = 3)
+# set.seed(951L)
+# p = plot_network(ig, physeq.r.noS, type = "taxa",
+#                  color = "Order", shape= "Phylum",
+#                  line_weight = 1, line_alpha = 0.3,
+#                  point_size = 3,
+#                  label=NULL)
+# p + scale_color_manual(values=pcols) +
+#     scale_size_manual(values=psizes)
+#     guides(colour = guide_legend(override.aes = list(size=8)),
+#            shape = guide_legend(override.aes = list(size=8))) +
+#     theme(legend.text = element_text(size=13),
+#           legend.title = element_text(size=15,
+#                                       face = "bold"))
+html_table_width <- function(kable_output, width){
+  width_html <- paste0(paste0('<col width="', width, '">'), collapse = "\n")
+  sub("<table>", paste0("<table>\n", width_html), kable_output)
+}
+
+kable(top10_vertexDF[c("OTU Classification","Centrality","Closeness","Degree")], row.names = FALSE) %>%
+  html_table_width(c(700,100,100,100)) %>%
+  kable_styling(full_width = F, bootstrap_options = c("striped", "hover")) %>% row_spec(0,bold=TRUE)
+```
+
+##Supplementary Figures and Tables
+
+###**Supplementary Figure 1**
+
+```{r include=FALSE}
+fast_melt=function(physeq){
+  # supports "naked" otu_table as `physeq` input.
+  otutab = as(otu_table(physeq), "matrix")
+  if(!taxa_are_rows(physeq)){otutab <- t(otutab)}
+  otudt = data.table(otutab, keep.rownames = TRUE)
+  setnames(otudt, "rn", "taxaID")
+  # Enforce character taxaID key
+  otudt[, taxaIDchar := as.character(taxaID)]
+  otudt[, taxaID := NULL]
+  setnames(otudt, "taxaIDchar", "taxaID")
+  # Melt count table
+  mdt = melt.data.table(otudt, 
+                        id.vars = "taxaID",
+                        variable.name = "SampleID",
+                        value.name = "count")
+  # Remove zeroes, NAs
+  mdt <- mdt[count > 0][!is.na(count)]
+  # Calculate relative abundance
+  mdt[, RelativeAbundance := count / sum(count), by = SampleID]
+  if(!is.null(tax_table(physeq, errorIfNULL = FALSE))){
+    # If there is a tax_table, join with it. Otherwise, skip this join.
+    taxdt = data.table(as(tax_table(physeq, errorIfNULL = TRUE), "matrix"), keep.rownames = TRUE)
+    setnames(taxdt, "rn", "taxaID")
+    # Enforce character taxaID key
+    taxdt[, taxaIDchar := as.character(taxaID)]
+    taxdt[, taxaID := NULL]
+    setnames(taxdt, "taxaIDchar", "taxaID")
+    # Join with tax table
+    setkey(taxdt, "taxaID")
+    setkey(mdt, "taxaID")
+    mdt <- taxdt[mdt]
+  }
+  return(mdt)
+}
+
+MADS_v2_p.f.noArc.es.eo.noSing = filter_taxa(MADS_v2_p.f.noArc.es, function(x) sum(x) > 1, TRUE)
+MADS_v2_p.f.noArc.es.eo.noSing.r <-  transform_sample_counts(MADS_v2_p.f.noArc.es.eo.noSing, function(x) {x/sum(x)} )
+
+mdt = fast_melt(MADS_v2_p.f.noArc.es.eo.noSing)
+
+prevdt = mdt[, list(Prevalence = sum(count > 0), 
+                    TotalCounts = sum(count)),
+             by = taxaID]
+
+addPhylum = unique(copy(mdt[, list(taxaID, Order)]))
+setkey(prevdt, taxaID)
+setkey(addPhylum, taxaID)
+prevdt <- addPhylum[prevdt]
+showPhyla = prevdt[, sum(TotalCounts), by = Order][order(-V1)][1:8]$Order
+setkey(prevdt, Order)
+
+prv_colors= c("#771155", 
+                "#114477", "#77AADD", 
+                "#117777", 
+                "#DDAA77", 
+                "#777711", 
+                "#774411", 
+                "#DD7788")
+
+prevdt_showPhyla<-prevdt[showPhyla]
+
+prevdt_showPhyla$Order = factor(prevdt_showPhyla$Order, 
+                          levels = c("Pseudomonadales","Burkholderiales","Nitrosomonadales","Clostridiales",
+                                     "Alteromonadales","Desulfobacterales","Nitrospirales","Chromatiales"))
+MADS_prev<-ggplot(prevdt_showPhyla, 
+       mapping = aes(Prevalence, TotalCounts, color = Order)) + 
+  geom_point(size = 4, alpha = 0.7) + 
+  scale_y_log10() +
+  scale_color_manual(values=prv_colors) +
+  geom_vline(xintercept = 20, linetype="dotted")
+```
+```{r echo=FALSE, fig.align="center", fig.height=4, fig.width=10}
+MADS_prev
+```
+
+###**Supplementary Figure 2**
+
+```{r echo=FALSE}
+depth_merged_MADS_v2.b.r = merge_samples(MADS_v2_p.f.noArc.es.eo, "Depth", fun=mean)
+depth_merged_MADS_v2.b.r <-  transform_sample_counts(depth_merged_MADS_v2.b.r, function(x) {x/sum(x)} ) 
+# depth_merged_MADS_v2.b.r.metadata = merge_samples(sample_data(MADS_v2.b.r), "depthlogy")
+# identical(sample_data(depth_merged_MADS_v2.b.r), depth_merged_MADS_v2.b.r.metadata)
+depth_merged_MADS_v2.b.r.glom <- tax_glom(depth_merged_MADS_v2.b.r, taxrank = 'Phylum')
+depth_merged_MADS_v2.b.r.glom.MADS_v2df <- data.table(psmelt(depth_merged_MADS_v2.b.r.glom))
+depth_merged_MADS_v2.b.r.glom.MADS_v2df$Phylum <- as.character(depth_merged_MADS_v2.b.r.glom.MADS_v2df$Phylum)
+depth_merged_MADS_v2.b.r.glom.MADS_v2df[, median := median(Abundance, na.rm = TRUE), 
+                                      by = "Phylum"]
+depth_merged_MADS_v2.b.r.glom.MADS_v2df[(median <= 0.003), Phylum := "Other"]
+
+depth_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo<-depth_merged_MADS_v2.b.r.glom.MADS_v2df[!grepl("Proteobacteria", depth_merged_MADS_v2.b.r.glom.MADS_v2df$Phylum),]
+depth_merged_MADS_v2.b.r.ProtCl = subset_taxa(depth_merged_MADS_v2.b.r, Phylum == "Proteobacteria")
+depth_merged_MADS_v2.b.r.ProtCl.glom <- tax_glom(depth_merged_MADS_v2.b.r.ProtCl, taxrank = 'Class')
+depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df <- data.table(psmelt(depth_merged_MADS_v2.b.r.ProtCl.glom))
+depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df$Class <- as.character(depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df$Class)
+depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df[, median := median(Abundance, na.rm = TRUE), 
+                                             by = "Class"]
+depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df[(median <= 0.01), Class := "Other Proteobacteria"]
+
+depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP <- subset(depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df, select = -Phylum)
+names(depth_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo)[names(depth_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo) == 'Phylum'] <- 'Taxa'
+names(depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP)[names(depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP) == 'Class'] <- 'Taxa'
+#join the two
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy <- rbind(depth_merged_MADS_v2.b.r.glom.MADS_v2df.noProteo, depth_merged_MADS_v2.b.r.ProtCl.glom.MADS_v2df.noP)
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy<-depth_merged_MADS_v2.b.r.ProteoCl.AllPhy[!grepl("Other Proteobacteria",
+                                                                                      depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa),]
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy<-depth_merged_MADS_v2.b.r.ProteoCl.AllPhy[!grepl("Bacteroidetes",
+                                                                                          depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa),]
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa = factor(depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa,
+                                                     levels = c("Alphaproteobacteria","Betaproteobacteria","Gammaproteobacteria",
+                                                                "Firmicutes","Actinobacteria", "Other"))
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Sample = as.numeric(depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Sample)
+
+# #r squared from lm()
+# beta_depth_merged_MADS_v2.b.r.ProteoCl.AllPhy<-depth_merged_MADS_v2.b.r.ProteoCl.AllPhy[grepl("Betaproteobacteria",
+#                                                                                           depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa),]
+# gamma_depth_merged_MADS_v2.b.r.ProteoCl.AllPhy<-depth_merged_MADS_v2.b.r.ProteoCl.AllPhy[grepl("Gammaproteobacteria",
+#                                                                                                 depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa),]
+# actino_depth_merged_MADS_v2.b.r.ProteoCl.AllPhy<-depth_merged_MADS_v2.b.r.ProteoCl.AllPhy[grepl("Actinobacteria",
+#                                                                                                depth_merged_MADS_v2.b.r.ProteoCl.AllPhy$Taxa),]
+# beta_r2<-round(summary((lm(Abundance~Sample,beta_depth_merged_MADS_v2.b.r.ProteoCl.AllPhy)))$r.squared, digits=3)
+# gamma_r2<-round(summary((lm(Abundance~Sample,gamma_depth_merged_MADS_v2.b.r.ProteoCl.AllPhy)))$r.squared, digits=3)
+# actino_r2<-round(summary((lm(Abundance~Sample,actino_depth_merged_MADS_v2.b.r.ProteoCl.AllPhy)))$r.squared, digits=3)
+# 
+# annotations <- data.frame(
+#   label = c("R2=0.065", "R2=0.014", "R2=0.205"),
+#   Taxa   = c("Betaproteobacteria", "Gammaproteobacteria", "Actinobacteria"),
+#   x     = c(2000, 1500,1500),
+#   y     = c(0.3, 0.3,0.25)
+# )
+
+formula <- y ~ x
+
+fig2_MADS_v2_colors = c("#332288", "#4477AA", "#117733", 
+                        "#AA7744", "#CC6677","#AA4499")
+
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy.plot<-ggplot(depth_merged_MADS_v2.b.r.ProteoCl.AllPhy[Abundance > 0], 
+                                                    aes(x = Sample, y = Abundance, fill = Taxa)) + 
+  geom_point(aes(color=Taxa)) +
+  geom_smooth(aes(color=Taxa, fill=Taxa),
+              method='lm', se=0.95, alpha=0.1) +
+  facet_wrap(~Taxa) +
+  stat_smooth(aes(color = Taxa, fill = Taxa),
+           method = "lm") +
+  stat_cor(aes(color = Taxa),
+           label.y = 0.7,
+           label.x = 1750) +
+  stat_poly_eq(
+    aes(color = Taxa, label = ..eq.label..),
+           formula = formula,
+           label.y = 0.6,
+           label.x = 1750,
+           parse = TRUE) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_x_continuous(breaks = c(0,500,1000,1500,2000,5000)) +
+  scale_color_manual(values=fig2_MADS_v2_colors) +
+  scale_fill_manual(values=fig2_MADS_v2_colors) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1),
+        legend.position="none") +
+  ylab("Relative Abundance (%)\n") +
+  xlab("Depth (mbs)\n")
+```
+```{r echo=FALSE, fig.align="center", fig.height=8, fig.width=14}
+depth_merged_MADS_v2.b.r.ProteoCl.AllPhy.plot
+```
+
+**Legend:** Correlations between relative abundance of OTUs (%, y-axis) associated to the most abundant taxonomic groups across the dataset and depth (meters below surface, x-axis). Regression lines follow the linear model and shading around lines corresponds to the 95% confidence interval. Annotations in plot facets indicate the associated Pearson correlation coefficient, its corresponding p-value and the fitted linear model equation. Each point represents an OTU associated to the taxonomic group in each facet at a certain depth - a same OTU may be depicted more than one time.
+
+###**Supplementary Table 1**
+
+**Legend:** Top 10 OTU network interactions ordered by edge betweenness (number of shortest paths going through an edge - OTU/OTU interactions) values as per the calculated Jaccard distances.
+
+```{r echo=FALSE, fig.align="center"}
+kable(top10_edgeDF[c("OTU 1 Classification","OTU 2 Classification","Betweenness")], row.names = FALSE) %>%
+  kable_styling(full_width = F, bootstrap_options = c("striped", "hover"),
+                font_size = 12) %>% row_spec(0,bold=TRUE)
+```
+
+###**Supplementary Table 2**
+
+**Legend:** ```SILVA 128``` taxonomic affiliations of OTUs present in 20 or more samples.
+
+```{r include=FALSE}
+prev_OTUs = prevdt_showPhyla[Prevalence > 20]
+
+prev_OTUs$'Taxa Classification' = c("Proteobacteria; Betaproteobacteria; Burkholderiales; Comamonadaceae; uncultured",
+                                  "Proteobacteria; Betaproteobacteria; Burkholderiales; Comamonadaceae; Variovorax",
+                                  "Proteobacteria; Gammaproteobacteria; Alteromonadales; Alteromonadaceae; Alishewanella",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas",
+                                  "Proteobacteria; Gammaproteobacteria; Pseudomonadales; Pseudomonadaceae; Pseudomonas")
+prev_OTUs_o <- as.data.frame(prev_OTUs[order(-prev_OTUs$Prevalence),])
+names(prev_OTUs_o) = c("Taxa ID","Order","Prevalence","Total_Counts","Taxa Classification")
+```
+
+```{r echo=FALSE, fig.align="center"}
+kable(prev_OTUs_o[c("Taxa ID","Taxa Classification","Prevalence")], 
+      row.names = FALSE) %>%
+  kable_styling(full_width = F, bootstrap_options = c("striped", "hover"),
+                font_size = 12) %>% row_spec(0,bold=TRUE)
+```
+
+###**Supplementary Table 3** (complete metadata table)
